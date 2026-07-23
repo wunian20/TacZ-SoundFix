@@ -3,9 +3,6 @@ run/
 libs/
 *.jar
 .gradle/
-gradle/
-gradlew
-gradlew.bat
 local.properties
 *.iml
 .idea/
