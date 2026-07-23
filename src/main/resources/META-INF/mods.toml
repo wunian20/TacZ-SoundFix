@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="GNU GPL 3.0"
+
+[[mods]]
+modId="soundfix"
+version="1.0.0"
+displayName="TacZ SoundFix"
+logoFile="logo.png"
+credits=""
+authors="无念（使用Open Code编写）"
+description='''
+修复 TaCZ 以下音效问题：
+1. 检视时切刀换武器，检视音效继续播放 → 物品变化检测自动停止
+2. 检视时攻击/开镜打断，检视音效继续播放 → 仅检视后3秒内的点击才停止音效，不影响正常战斗
+3. 连续按检视键音效叠加 → 按检视键时先停止旧音效再开始新检视（HIGH优先度，在TaCZ处理前执行）
+4. 冲锋枪开火音效被 NBT 变化误停 → 只比较物品类型不比较 NBT
+所有修复均通过反射调用 SoundPlayManager.stopAndClearTrackedSounds() 实现，不修改 TaCZ 源文件。
+'''
+
+[[dependencies.soundfix]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="CLIENT"
+
+[[dependencies.soundfix]]
+    modId="tacz"
+    mandatory=false
+    versionRange="[1.1,)"
+    ordering="NONE"
+    side="CLIENT"
