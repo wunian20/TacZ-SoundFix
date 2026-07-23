@@ -19,7 +19,7 @@ public class ClientTickHandler {
     private Method stopMethod;
     private KeyMapping inspectKeyMapping;
     private long lastInspectPressTime = 0;
-    private static final long INSPECT_TIMEOUT = 3000;
+    private static final long INSPECT_TIMEOUT = 8000;
 
     public ClientTickHandler() {
         try {
