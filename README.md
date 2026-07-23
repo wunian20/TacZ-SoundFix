@@ -14,5 +14,6 @@
 - Minecraft 1.20.1 + Forge 47+
 - TaCZ 1.1+（可选，不装也能进游戏但无效果）
 
-**作者**
-无念（本项目完全由 OpenCode AI 编写，不喜勿喷）
+**测试**
+- 已测试 DeltaForce Melee Pack-0.2.0，安装此 mod 后无检视音效叠加 bug
+- 欢迎反馈 bug
