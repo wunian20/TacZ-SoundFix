@@ -8,7 +8,7 @@ version="1.0.0"
 displayName="TacZ SoundFix"
 logoFile="logo.png"
 credits=""
-authors="无念（使用Open Code编写）"
+authors="无念（本项目完全由 OpenCode AI 编写，不喜勿喷）"
 description='''
 修复 TaCZ 以下音效问题：
 1. 检视时切刀换武器，检视音效继续播放 → 物品变化检测自动停止
