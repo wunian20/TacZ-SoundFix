@@ -17,3 +17,8 @@
 **测试**
 - 已测试 DeltaForce Melee Pack-0.2.0，安装此 mod 后无检视音效叠加 bug
 - 欢迎反馈 bug
+
+**鸣谢**
+- TaCZ 全体开发成员
+- lrtactical 模组
+- DeltaForce Melee Pack 刀包作者
