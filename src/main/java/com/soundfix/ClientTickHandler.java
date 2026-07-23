@@ -46,10 +46,12 @@ public class ClientTickHandler {
         ItemStack currentMain = mc.player.getMainHandItem();
         ItemStack currentOff = mc.player.getOffhandItem();
 
-        boolean mainChanged = !ItemStack.isSameItem(lastMainHandItem, currentMain);
-        boolean offChanged = !ItemStack.isSameItem(lastOffHandItem, currentOff);
+        boolean mainItemSame = ItemStack.isSameItem(lastMainHandItem, currentMain);
+        boolean mainNameSame = lastMainHandItem.getHoverName().getString().equals(currentMain.getHoverName().getString());
+        boolean offItemSame = ItemStack.isSameItem(lastOffHandItem, currentOff);
+        boolean offNameSame = lastOffHandItem.getHoverName().getString().equals(currentOff.getHoverName().getString());
 
-        if (mainChanged || offChanged) {
+        if (!mainItemSame || !mainNameSame || !offItemSame || !offNameSame) {
             lastMainHandItem = currentMain.copy();
             lastOffHandItem = currentOff.copy();
             stopSounds();
