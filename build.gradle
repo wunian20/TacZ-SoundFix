@@ -1,8 +1,9 @@
 plugins {
+    id 'java-library'
     id 'eclipse'
     id 'idea'
     id 'maven-publish'
-    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'net.neoforged.moddev' version '2.0.143'
 }
 
 version = mod_version
@@ -12,65 +13,35 @@ base {
     archivesName = "TacZ SoundFix"
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
-println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
-
-minecraft {
-    mappings channel: mapping_channel, version: mapping_version
-    copyIdeResources = true
+neoForge {
+    version = project.neo_version
 
     runs {
-        configureEach {
-            workingDirectory project.file('run')
-            property 'forge.logging.markers', 'REGISTRIES'
-            property 'forge.logging.console.level', 'debug'
-            mods {
-                "${mod_id}" {
-                    source sourceSets.main
-                }
-            }
-        }
-
         client {
-            property 'forge.enabledGameTestNamespaces', mod_id
+            client()
         }
-
         server {
-            property 'forge.enabledGameTestNamespaces', mod_id
-            args '--nogui'
+            server()
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet(sourceSets.main)
         }
     }
 }
 
-sourceSets.main.resources { srcDir 'src/generated/resources' }
-
 repositories {
-    maven { url = "https://maven.aliyun.com/repository/public" }
-    maven { url = "https://maven.aliyun.com/repository/forge" }
-    maven { url = "https://repo.huaweicloud.com/repository/maven" }
     mavenCentral()
-    maven { url = "https://maven.minecraftforge.net/" }
 }
 
 dependencies {
-    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
-    compileOnly files("libs/tacz-1.20.1-1.1.8-hotfix.jar")
-}
-
-tasks.named('processResources', ProcessResources).configure {
-    var replaceProperties = [
-            minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
-            forge_version: forge_version, forge_version_range: forge_version_range,
-            loader_version_range: loader_version_range,
-            mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
-            mod_authors: mod_authors, mod_description: mod_description,
-    ]
-    inputs.properties replaceProperties
-
-    filesMatching(['pack.mcmeta']) {
-        expand replaceProperties + [project: project]
-    }
+    // 本 mod 纯反射调用 TaCZ（字符串类名/方法名），不直接 import 任何 TaCZ 类，
+    // 因此无需 compileOnly 依赖。如需 IDE 里的 TaCZ 代码提示，可取消下一行注释：
+    // compileOnly files("libs/tacz-neoforge-1.21.1-1.1.8-hotfix-r6.jar")
 }
 
 tasks.named('jar', Jar).configure {
@@ -85,7 +56,4 @@ tasks.named('jar', Jar).configure {
                 'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
         ])
     }
-    finalizedBy 'reobfJar'
 }
-
-
