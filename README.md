@@ -40,7 +40,18 @@
 ./gradlew build
 ```
 
-产物：`build/libs/TacZ SoundFix-1.0.0.jar`，放入游戏 `mods/` 目录即可。
+产物：`build/libs/TacZ SoundFix1.21.1-NeoForge-1.0.1.jar`，放入游戏 `mods/` 目录即可。
+
+## 版本与命名
+
+文件名遵循 `TacZ SoundFix{游戏版本}-{加载器平台}-{版本号}.jar` 规范：
+
+| 版本 | 分支 | 文件名 |
+|---|---|---|
+| v1.0.0 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.0.jar` |
+| v1.0.1 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.1.jar` |
+
+版本号在 `gradle.properties` 的 `mod_version` 与 `META-INF/neoforge.mods.toml` 的 `version` 中同步维护。
 
 ## 测试
 
