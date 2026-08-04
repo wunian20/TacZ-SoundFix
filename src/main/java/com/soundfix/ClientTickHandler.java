@@ -22,20 +22,19 @@ public class ClientTickHandler {
     private ItemStack lastMainHandItem = ItemStack.EMPTY;
     private ItemStack lastOffHandItem = ItemStack.EMPTY;
     private Class<?> soundManagerClass;
-    private Method stopAllMethod;
     private KeyMapping inspectKeyMapping;
     private long lastInspectPressTime = 0;
-    /** 检视键按下时的追踪池快照，用于识别随后新增的检视音效 */
-    private Set<Object> candidateBaseline = null;
-    /** 检视音效候选：检视键按下后新进入追踪池的音效实例 */
-    private final Set<Object> inspectCandidates = Collections.newSetFromMap(new IdentityHashMap<>());
+    /**
+     * 上一客户端 tick 的追踪池快照。
+     * 其中的音效视为"旧音效"（检视音效、上一次切换的切出音效），
+     * 切武器/攻击/检视时可安全停止；本 tick 新入池的音效（本次切出的 draw）不在快照中，不会被误停。
+     */
+    private Set<Object> lastTickSounds = Collections.emptySet();
     private static final long INSPECT_TIMEOUT = 8000;
 
     public ClientTickHandler() {
         try {
             soundManagerClass = Class.forName("com.tacz.guns.client.sound.SoundPlayManager");
-            stopAllMethod = soundManagerClass.getDeclaredMethod("stopAndClearTrackedSounds");
-            stopAllMethod.setAccessible(true);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -49,17 +48,11 @@ public class ClientTickHandler {
 
     @SubscribeEvent
     public void onClientTick(ClientTickEvent.Post event) {
-        // 增量收集检视音效候选：快照之后新进入追踪池的音效视为本次检视音效
-        if (candidateBaseline != null) {
-            for (Object inst : collectTrackedInstances()) {
-                if (!candidateBaseline.contains(inst)) {
-                    inspectCandidates.add(inst);
-                }
-            }
-        }
-
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return;
+        if (mc.player == null) {
+            lastTickSounds = Collections.emptySet();
+            return;
+        }
 
         ItemStack currentMain = mc.player.getMainHandItem();
         ItemStack currentOff = mc.player.getOffhandItem();
@@ -72,20 +65,21 @@ public class ClientTickHandler {
         if (!mainItemSame || !mainNameSame || !offItemSame || !offNameSame) {
             lastMainHandItem = currentMain.copy();
             lastOffHandItem = currentOff.copy();
-            // 切武器打断检视：只停检视音效候选，不触碰 draw/射击等其他音效
-            stopInspectCandidates();
+            // 切武器：停止上一 tick 就在播放的旧音效（检视音效、旧武器的长切出音效），
+            // 保留本 tick 刚播放的新音效（新武器的 draw 音效）
+            stopOldSounds();
         }
+
+        // 更新快照供下一 tick 使用（在本 tick 新音效入池之后更新，使其成为下一轮的"旧音效"）
+        lastTickSounds = collectTrackedInstances();
     }
 
     @SubscribeEvent(priority = EventPriority.HIGH)
     public void onKey(InputEvent.Key event) {
         if (inspectKeyMapping != null && event.getAction() == 1 && inspectKeyMapping.matches(event.getKey(), event.getScanCode())) {
-            // 按检视键：全停旧音效（本次新检视音效尚未播放，安全）防止叠加
-            stopAllSounds();
+            // 连续按检视键防叠加：停掉上次检视音效（TaCZ 本次新检视音效尚未播放）
+            stopOldSounds();
             lastInspectPressTime = System.currentTimeMillis();
-            // 快照当前追踪池（全停后通常为空），之后新增的音效即为本次检视音效
-            candidateBaseline = collectTrackedInstances();
-            inspectCandidates.clear();
         }
     }
 
@@ -101,26 +95,18 @@ public class ClientTickHandler {
 
         if (System.currentTimeMillis() - lastInspectPressTime > INSPECT_TIMEOUT) return;
 
-        // 攻击/开镜打断检视：只停检视音效候选，不影响射击等音效
-        stopInspectCandidates();
+        // 攻击/开镜打断检视：停上一 tick 的旧音效（检视音效），本 tick 的射击音效不受影响
+        stopOldSounds();
     }
 
-    private void stopAllSounds() {
-        if (stopAllMethod != null) {
-            try {
-                stopAllMethod.invoke(null);
-            } catch (Exception ignored) {}
-        }
-    }
-
-    private void stopInspectCandidates() {
-        for (Object inst : inspectCandidates) {
+    /** 停止上一 tick 快照中的音效（旧音效），并清空快照 */
+    private void stopOldSounds() {
+        for (Object inst : lastTickSounds) {
             try {
                 stopSoundInstance(inst);
             } catch (Exception ignored) {}
         }
-        inspectCandidates.clear();
-        candidateBaseline = null;
+        lastTickSounds = Collections.emptySet();
     }
 
     /** 反射收集 TRACKED_GUN_SOUNDS 中所有音效实例 */
