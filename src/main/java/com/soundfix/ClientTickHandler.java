@@ -11,23 +11,31 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Set;
 
 @OnlyIn(Dist.CLIENT)
 public class ClientTickHandler {
     private ItemStack lastMainHandItem = ItemStack.EMPTY;
     private ItemStack lastOffHandItem = ItemStack.EMPTY;
     private Class<?> soundManagerClass;
+    private Method stopAllMethod;
     private KeyMapping inspectKeyMapping;
     private long lastInspectPressTime = 0;
-    /** 捕获到的当前检视音效实例引用（来自 SoundPlayManager.tmpSoundInstance） */
-    private Object currentInspectSound = null;
-    /** 按下检视键后，下一个客户端 tick 捕获检视音效 */
-    private boolean captureInspectPending = false;
+    /** 检视键按下时的追踪池快照，用于识别随后新增的检视音效 */
+    private Set<Object> candidateBaseline = null;
+    /** 检视音效候选：检视键按下后新进入追踪池的音效实例 */
+    private final Set<Object> inspectCandidates = Collections.newSetFromMap(new IdentityHashMap<>());
     private static final long INSPECT_TIMEOUT = 8000;
 
     public ClientTickHandler() {
         try {
             soundManagerClass = Class.forName("com.tacz.guns.client.sound.SoundPlayManager");
+            stopAllMethod = soundManagerClass.getDeclaredMethod("stopAndClearTrackedSounds");
+            stopAllMethod.setAccessible(true);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -41,10 +49,13 @@ public class ClientTickHandler {
 
     @SubscribeEvent
     public void onClientTick(ClientTickEvent.Post event) {
-        // 捕获检视音效：检视键按下后 TaCZ 已在本 tick 之前播放检视音效并写入 tmpSoundInstance
-        if (captureInspectPending) {
-            captureInspectPending = false;
-            currentInspectSound = readTmpSoundInstance();
+        // 增量收集检视音效候选：快照之后新进入追踪池的音效视为本次检视音效
+        if (candidateBaseline != null) {
+            for (Object inst : collectTrackedInstances()) {
+                if (!candidateBaseline.contains(inst)) {
+                    inspectCandidates.add(inst);
+                }
+            }
         }
 
         Minecraft mc = Minecraft.getInstance();
@@ -61,18 +72,20 @@ public class ClientTickHandler {
         if (!mainItemSame || !mainNameSame || !offItemSame || !offNameSame) {
             lastMainHandItem = currentMain.copy();
             lastOffHandItem = currentOff.copy();
-            // 切武器打断检视：只停捕获的检视音效，绝不触碰其他音效（如新武器的 draw 切出音效）
-            stopInspectSound();
+            // 切武器打断检视：只停检视音效候选，不触碰 draw/射击等其他音效
+            stopInspectCandidates();
         }
     }
 
     @SubscribeEvent(priority = EventPriority.HIGH)
     public void onKey(InputEvent.Key event) {
         if (inspectKeyMapping != null && event.getAction() == 1 && inspectKeyMapping.matches(event.getKey(), event.getScanCode())) {
-            // 连续按检视键防叠加：停掉上一次的检视音效（TaCZ 本次的新检视音效尚未播放）
-            stopInspectSound();
+            // 按检视键：全停旧音效（本次新检视音效尚未播放，安全）防止叠加
+            stopAllSounds();
             lastInspectPressTime = System.currentTimeMillis();
-            captureInspectPending = true;
+            // 快照当前追踪池（全停后通常为空），之后新增的音效即为本次检视音效
+            candidateBaseline = collectTrackedInstances();
+            inspectCandidates.clear();
         }
     }
 
@@ -88,33 +101,57 @@ public class ClientTickHandler {
 
         if (System.currentTimeMillis() - lastInspectPressTime > INSPECT_TIMEOUT) return;
 
-        // 攻击/开镜打断检视：只停检视音效，不影响射击等音效
-        stopInspectSound();
+        // 攻击/开镜打断检视：只停检视音效候选，不影响射击等音效
+        stopInspectCandidates();
     }
 
-    /** 停止捕获的检视音效（若为 null 则无操作） */
-    private void stopInspectSound() {
-        if (currentInspectSound != null) {
+    private void stopAllSounds() {
+        if (stopAllMethod != null) {
             try {
-                stopSoundInstance(currentInspectSound);
+                stopAllMethod.invoke(null);
             } catch (Exception ignored) {}
-            currentInspectSound = null;
         }
     }
 
-    /** 反射读取 SoundPlayManager.tmpSoundInstance */
-    private Object readTmpSoundInstance() {
-        if (soundManagerClass == null) return null;
+    private void stopInspectCandidates() {
+        for (Object inst : inspectCandidates) {
+            try {
+                stopSoundInstance(inst);
+            } catch (Exception ignored) {}
+        }
+        inspectCandidates.clear();
+        candidateBaseline = null;
+    }
+
+    /** 反射收集 TRACKED_GUN_SOUNDS 中所有音效实例 */
+    private Set<Object> collectTrackedInstances() {
+        Set<Object> result = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (soundManagerClass == null) return result;
         try {
-            Field f = soundManagerClass.getDeclaredField("tmpSoundInstance");
+            Field f = soundManagerClass.getDeclaredField("TRACKED_GUN_SOUNDS");
             f.setAccessible(true);
-            return f.get(null);
-        } catch (Exception e) {
-            return null;
-        }
+            Object mapObj = f.get(null);
+            if (mapObj instanceof Map<?, ?> map) {
+                for (Object dequeObj : map.values()) {
+                    if (!(dequeObj instanceof Deque<?> deque)) continue;
+                    for (Object tracked : deque) {
+                        Object instance = getRecordComponent(tracked, "instance");
+                        if (instance != null) result.add(instance);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return result;
     }
 
-    /** 调用 GunSoundInstance.setStop()（public 或私有均可） */
+    /** 读取 TrackedGunSound record 的 instance() 组件 */
+    private static Object getRecordComponent(Object recordObj, String componentName) throws Exception {
+        Method m = recordObj.getClass().getDeclaredMethod(componentName);
+        m.setAccessible(true);
+        return m.invoke(recordObj);
+    }
+
+    /** 调用 GunSoundInstance.setStop() */
     private static void stopSoundInstance(Object instance) throws Exception {
         Method m = instance.getClass().getDeclaredMethod("setStop");
         m.setAccessible(true);
