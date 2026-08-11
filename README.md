@@ -31,6 +31,9 @@
 - `main`：Minecraft 1.20.1 + Forge 47+
 - `neoforge/1.21.1`：Minecraft 1.21.1 + NeoForge 21.1+（对应 [TaCZ 1.21.1 NeoForge 移植版](https://modrinth.com/mod/tacz-1.21.1)）
 - TaCZ 1.1+（可选，不装也能进游戏但无效果）
+- **Cloth Config API**（可选，仅游戏内设置界面需要；不装时功能按默认值生效，只是没有设置界面）
+  - `main`（Forge 1.20.1）：Cloth Config 11.x（`cloth-config-forge`）
+  - `neoforge/1.21.1`（NeoForge 1.21.1）：Cloth Config 15.x（`cloth-config-neoforge`）
 
 ## 构建
 
