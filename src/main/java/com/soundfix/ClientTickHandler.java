@@ -31,6 +31,12 @@ public class ClientTickHandler {
      * 切武器/攻击/检视时可安全停止；本 tick 新入池的音效（本次切出的 draw）不在快照中，不会被误停。
      */
     private Set<Object> lastTickSounds = Collections.emptySet();
+    /**
+     * 已隔离的枪械音效实例（切走前是枪时，将当时追踪池中的音效实例标记为"枪的音效"）。
+     * 之后的停止逻辑跳过这些实例，保证枪声在切走、切回时都不被打断；
+     * 近战（刀）等其他音效不受影响。
+     */
+    private final Set<Object> isolatedGunSounds = Collections.newSetFromMap(new IdentityHashMap<>());
     private static final long INSPECT_TIMEOUT = 8000;
 
     // ---- 枪械类型判断用反射（TaCZ 公开 API）----
@@ -93,10 +99,13 @@ public class ClientTickHandler {
             lastOffHandItem = currentOff.copy();
 
             if (isolated && cutFromGun) {
-                // 枪械音效隔离开启且切走前是枪：保留全部音效（枪声等播完），不停止
+                // 枪械音效隔离开启且切走前是枪：
+                // 把当前追踪池中的音效实例标记为"枪的音效"（之后停止时跳过），本次不停止，
+                // 这样即使切走后再切回，这些枪声仍不会被后续的停止逻辑打断
+                isolatedGunSounds.addAll(collectTrackedInstances());
             } else {
                 // 默认行为 / 近战武器：停止上一 tick 的旧音效（检视音效、旧武器的长切出音效），
-                // 保留本 tick 刚播放的新音效（本次切出的 draw 音效）
+                // 保留本 tick 刚播放的新音效（本次切出的 draw 音效）与已隔离的枪声
                 stopOldSounds();
             }
         }
@@ -130,9 +139,10 @@ public class ClientTickHandler {
         stopOldSounds();
     }
 
-    /** 停止上一 tick 快照中的音效（旧音效），并清空快照 */
+    /** 停止上一 tick 快照中的音效（旧音效），跳过已隔离的枪械音效，并清空快照 */
     private void stopOldSounds() {
         for (Object inst : lastTickSounds) {
+            if (isolatedGunSounds.contains(inst)) continue; // 已隔离的枪声：保留播完
             try {
                 stopSoundInstance(inst);
             } catch (Exception ignored) {}
