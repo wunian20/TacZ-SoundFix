@@ -11,21 +11,46 @@ import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.IdentityHashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 @OnlyIn(Dist.CLIENT)
 public class ClientTickHandler {
     private ItemStack lastMainHandItem = ItemStack.EMPTY;
     private ItemStack lastOffHandItem = ItemStack.EMPTY;
-    private Method stopMethod;
+    private Class<?> soundManagerClass;
     private KeyMapping inspectKeyMapping;
     private long lastInspectPressTime = 0;
+    /**
+     * 上一客户端 tick 的追踪池快照。
+     * 其中的音效视为"旧音效"（检视音效、上一次切换的切出音效），
+     * 切武器/攻击/检视时可安全停止；本 tick 新入池的音效（本次切出的 draw）不在快照中，不会被误停。
+     */
+    private Set<Object> lastTickSounds = Collections.emptySet();
+    /**
+     * 已隔离的枪械音效实例（切走前是枪时，将当时追踪池中的音效实例标记为"枪的音效"）。
+     * 之后的停止逻辑跳过这些实例，保证枪声在切走、切回时都不被打断；
+     * 近战（刀）等其他音效不受影响。
+     */
+    private final Set<Object> isolatedGunSounds = Collections.newSetFromMap(new IdentityHashMap<>());
     private static final long INSPECT_TIMEOUT = 8000;
+
+    // ---- 枪械类型判断用反射（TaCZ 公开 API，1.20.1 与 1.21.1 结构一致）----
+    private Class<?> iGunClass;
+    private Method igunGetOrNullMethod;
+    private Method igunGetGunIdMethod;
+    private Class<?> timelessApiClass;
+    private Method timelessGetIndexMethod;
+    private Class<?> commonGunIndexClass;
+    private Method commonGetTypeMethod;
 
     public ClientTickHandler() {
         try {
-            Class<?> clazz = Class.forName("com.tacz.guns.client.sound.SoundPlayManager");
-            stopMethod = clazz.getDeclaredMethod("stopAndClearTrackedSounds");
-            stopMethod.setAccessible(true);
+            soundManagerClass = Class.forName("com.tacz.guns.client.sound.SoundPlayManager");
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -35,13 +60,30 @@ public class ClientTickHandler {
             field.setAccessible(true);
             inspectKeyMapping = (KeyMapping) field.get(null);
         } catch (Exception ignored) {}
+        initGunTypeReflection();
+    }
+
+    private void initGunTypeReflection() {
+        try {
+            iGunClass = Class.forName("com.tacz.guns.api.item.IGun");
+            igunGetOrNullMethod = iGunClass.getMethod("getIGunOrNull", ItemStack.class);
+            igunGetGunIdMethod = iGunClass.getMethod("getGunId", ItemStack.class);
+            timelessApiClass = Class.forName("com.tacz.guns.api.TimelessAPI");
+            timelessGetIndexMethod = timelessApiClass.getMethod("getCommonGunIndex", net.minecraft.resources.ResourceLocation.class);
+            commonGunIndexClass = Class.forName("com.tacz.guns.resource.index.CommonGunIndex");
+            commonGetTypeMethod = commonGunIndexClass.getMethod("getType");
+        } catch (Throwable ignored) {}
     }
 
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
-        if (event.phase != TickEvent.Phase.END) return;
+        if (event.phase != TickEvent.Phase.END) return; // 只在 tick 结束（Post）阶段处理
+
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null) return;
+        if (mc.player == null) {
+            lastTickSounds = Collections.emptySet();
+            return;
+        }
 
         ItemStack currentMain = mc.player.getMainHandItem();
         ItemStack currentOff = mc.player.getOffhandItem();
@@ -52,16 +94,33 @@ public class ClientTickHandler {
         boolean offNameSame = lastOffHandItem.getHoverName().getString().equals(currentOff.getHoverName().getString());
 
         if (!mainItemSame || !mainNameSame || !offItemSame || !offNameSame) {
+            // 切走前的武器（用于判断是否枪械）
+            boolean cutFromGun = isGun(lastMainHandItem);
+            boolean isolated = isGunIsolationEnabled();
             lastMainHandItem = currentMain.copy();
             lastOffHandItem = currentOff.copy();
-            stopSounds();
+
+            if (isolated && cutFromGun) {
+                // 枪械音效隔离开启且切走前是枪：
+                // 把当前追踪池中的音效实例标记为"枪的音效"（之后停止时跳过），本次不停止，
+                // 这样即使切走后再切回，这些枪声仍不会被后续的停止逻辑打断
+                isolatedGunSounds.addAll(collectTrackedInstances());
+            } else {
+                // 默认行为 / 近战武器：停止上一 tick 的旧音效（检视音效、旧武器的长切出音效），
+                // 保留本 tick 刚播放的新音效（本次切出的 draw 音效）与已隔离的枪声
+                stopOldSounds();
+            }
         }
+
+        // 更新快照供下一 tick 使用（在本 tick 新音效入池之后更新，使其成为下一轮的"旧音效"）
+        lastTickSounds = collectTrackedInstances();
     }
 
     @SubscribeEvent(priority = EventPriority.HIGH)
     public void onKey(InputEvent.Key event) {
         if (inspectKeyMapping != null && event.getAction() == 1 && inspectKeyMapping.matches(event.getKey(), event.getScanCode())) {
-            stopSounds();
+            // 连续按检视键防叠加：停掉上次检视音效（TaCZ 本次新检视音效尚未播放）
+            stopOldSounds();
             lastInspectPressTime = System.currentTimeMillis();
         }
     }
@@ -78,14 +137,97 @@ public class ClientTickHandler {
 
         if (System.currentTimeMillis() - lastInspectPressTime > INSPECT_TIMEOUT) return;
 
-        stopSounds();
+        // 攻击/开镜打断检视：停上一 tick 的旧音效（检视音效），本 tick 的射击音效不受影响
+        stopOldSounds();
     }
 
-    private void stopSounds() {
-        if (stopMethod != null) {
+    /** 停止上一 tick 快照中的音效（旧音效），跳过已隔离的枪械音效，并清空快照 */
+    private void stopOldSounds() {
+        for (Object inst : lastTickSounds) {
+            if (isolatedGunSounds.contains(inst)) continue; // 已隔离的枪声：保留播完
             try {
-                stopMethod.invoke(null);
+                stopSoundInstance(inst);
             } catch (Exception ignored) {}
         }
+        lastTickSounds = Collections.emptySet();
+    }
+
+    // ---- 枪械音效隔离 ----
+
+    /** 读取游戏内配置：是否开启枪械音效隔离（Cloth Config 缺失时返回 true，即默认开启） */
+    private boolean isGunIsolationEnabled() {
+        try {
+            return me.shedaniel.autoconfig.AutoConfig
+                    .getConfigHolder(SoundFixConfig.class)
+                    .getConfig()
+                    .gunSoundIsolation;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    /**
+     * 判断物品是否为"枪械"（非近战/刀）。
+     * 判定链：IGun.getIGunOrNull → getGunId → TimelessAPI.getCommonGunIndex → CommonGunIndex.getType。
+     * 刀的 index 结构不标准（data 内联），getCommonGunIndex 返回 empty → 判为非枪；
+     * 标准枪械 type 不含近战特征词 → 判为枪。
+     */
+    private boolean isGun(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        try {
+            if (iGunClass == null || igunGetOrNullMethod == null) return true;
+            Object iGun = igunGetOrNullMethod.invoke(null, stack);
+            if (iGun == null) return false; // 不是 TaCZ 枪械接口（刀/其他）
+            if (igunGetGunIdMethod == null || timelessGetIndexMethod == null || commonGetTypeMethod == null) return true;
+            Object gunId = igunGetGunIdMethod.invoke(iGun, stack);
+            if (gunId == null) return false;
+            Object opt = timelessGetIndexMethod.invoke(null, gunId);
+            if (!(opt instanceof Optional<?> optional) || optional.isEmpty()) return false; // 刀的 index 加载失败
+            Object index = optional.get();
+            Object typeObj = commonGetTypeMethod.invoke(index);
+            if (!(typeObj instanceof String type)) return true;
+            String t = type.toLowerCase();
+            // 近战特征词：melee / lrtactical / knife / blade / sword
+            return !t.contains("melee") && !t.contains("lrtactical")
+                    && !t.contains("knife") && !t.contains("blade") && !t.contains("sword");
+        } catch (Throwable t) {
+            // 反射失败时保守视为枪（不停止，避免误伤音效）
+            return true;
+        }
+    }
+
+    /** 反射收集 TRACKED_GUN_SOUNDS 中所有音效实例 */
+    private Set<Object> collectTrackedInstances() {
+        Set<Object> result = Collections.newSetFromMap(new IdentityHashMap<>());
+        if (soundManagerClass == null) return result;
+        try {
+            Field f = soundManagerClass.getDeclaredField("TRACKED_GUN_SOUNDS");
+            f.setAccessible(true);
+            Object mapObj = f.get(null);
+            if (mapObj instanceof Map<?, ?> map) {
+                for (Object dequeObj : map.values()) {
+                    if (!(dequeObj instanceof Deque<?> deque)) continue;
+                    for (Object tracked : deque) {
+                        Object instance = getRecordComponent(tracked, "instance");
+                        if (instance != null) result.add(instance);
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return result;
+    }
+
+    /** 读取 TrackedGunSound record 的 instance() 组件 */
+    private static Object getRecordComponent(Object recordObj, String componentName) throws Exception {
+        Method m = recordObj.getClass().getDeclaredMethod(componentName);
+        m.setAccessible(true);
+        return m.invoke(recordObj);
+    }
+
+    /** 调用 GunSoundInstance.setStop() */
+    private static void stopSoundInstance(Object instance) throws Exception {
+        Method m = instance.getClass().getDeclaredMethod("setStop");
+        m.setAccessible(true);
+        m.invoke(instance);
     }
 }
