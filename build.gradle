@@ -36,13 +36,16 @@ neoForge {
 
 repositories {
     mavenCentral()
+    maven {
+        name = 'Shedaniel'
+        url = 'https://maven.shedaniel.me/'
+    }
 }
 
 dependencies {
-    // 本 mod 纯反射调用 TaCZ（字符串类名/方法名），不直接 import 任何 TaCZ 类，
-    // 因此无需 compileOnly 依赖。如需 IDE 里的 TaCZ 代码提示，可取消下一行注释：
-    // compileOnly files("libs/tacz-neoforge-1.21.1-1.1.8-hotfix-r6.jar")
-}
+    // 游戏内设置界面：Cloth Config（NeoForge 1.21.1 版）。
+    // 玩家运行时装 cloth-config 才有设置界面；不装时 mod 照常工作（开关保持默认值）。
+    implementation("me.shedaniel.cloth:cloth-config-neoforge:15.0.140")}
 
 tasks.named('jar', Jar).configure {
     // 文件名规范：TacZ SoundFix{游戏版本}-{加载器平台}-{版本号}.jar

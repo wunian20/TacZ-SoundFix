@@ -31,3 +31,10 @@ description='''
     versionRange="[1.1,)"
     ordering="NONE"
     side="CLIENT"
+
+[[dependencies.soundfix]]
+    modId="cloth_config"
+    mandatory=false
+    versionRange="[15,)"
+    ordering="NONE"
+    side="CLIENT"

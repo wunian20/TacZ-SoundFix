@@ -15,6 +15,7 @@ import java.util.Collections;
 import java.util.Deque;
 import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 @OnlyIn(Dist.CLIENT)
@@ -32,6 +33,15 @@ public class ClientTickHandler {
     private Set<Object> lastTickSounds = Collections.emptySet();
     private static final long INSPECT_TIMEOUT = 8000;
 
+    // ---- 枪械类型判断用反射（TaCZ 公开 API）----
+    private Class<?> iGunClass;
+    private Method igunGetOrNullMethod;
+    private Method igunGetGunIdMethod;
+    private Class<?> timelessApiClass;
+    private Method timelessGetIndexMethod;
+    private Class<?> commonGunIndexClass;
+    private Method commonGetTypeMethod;
+
     public ClientTickHandler() {
         try {
             soundManagerClass = Class.forName("com.tacz.guns.client.sound.SoundPlayManager");
@@ -44,6 +54,19 @@ public class ClientTickHandler {
             field.setAccessible(true);
             inspectKeyMapping = (KeyMapping) field.get(null);
         } catch (Exception ignored) {}
+        initGunTypeReflection();
+    }
+
+    private void initGunTypeReflection() {
+        try {
+            iGunClass = Class.forName("com.tacz.guns.api.item.IGun");
+            igunGetOrNullMethod = iGunClass.getMethod("getIGunOrNull", ItemStack.class);
+            igunGetGunIdMethod = iGunClass.getMethod("getGunId", ItemStack.class);
+            timelessApiClass = Class.forName("com.tacz.guns.api.TimelessAPI");
+            timelessGetIndexMethod = timelessApiClass.getMethod("getCommonGunIndex", net.minecraft.resources.ResourceLocation.class);
+            commonGunIndexClass = Class.forName("com.tacz.guns.resource.index.CommonGunIndex");
+            commonGetTypeMethod = commonGunIndexClass.getMethod("getType");
+        } catch (Throwable ignored) {}
     }
 
     @SubscribeEvent
@@ -63,11 +86,19 @@ public class ClientTickHandler {
         boolean offNameSame = lastOffHandItem.getHoverName().getString().equals(currentOff.getHoverName().getString());
 
         if (!mainItemSame || !mainNameSame || !offItemSame || !offNameSame) {
+            // 切走前的武器（用于判断是否枪械）
+            boolean cutFromGun = isGun(lastMainHandItem);
+            boolean isolated = isGunIsolationEnabled();
             lastMainHandItem = currentMain.copy();
             lastOffHandItem = currentOff.copy();
-            // 切武器：停止上一 tick 就在播放的旧音效（检视音效、旧武器的长切出音效），
-            // 保留本 tick 刚播放的新音效（新武器的 draw 音效）
-            stopOldSounds();
+
+            if (isolated && cutFromGun) {
+                // 枪械音效隔离开启且切走前是枪：保留全部音效（枪声等播完），不停止
+            } else {
+                // 默认行为 / 近战武器：停止上一 tick 的旧音效（检视音效、旧武器的长切出音效），
+                // 保留本 tick 刚播放的新音效（本次切出的 draw 音效）
+                stopOldSounds();
+            }
         }
 
         // 更新快照供下一 tick 使用（在本 tick 新音效入池之后更新，使其成为下一轮的"旧音效"）
@@ -107,6 +138,50 @@ public class ClientTickHandler {
             } catch (Exception ignored) {}
         }
         lastTickSounds = Collections.emptySet();
+    }
+
+    // ---- 枪械音效隔离 ----
+
+    /** 读取游戏内配置：是否开启枪械音效隔离（Cloth Config 缺失时返回 false） */
+    private boolean isGunIsolationEnabled() {
+        try {
+            return me.shedaniel.autoconfig.AutoConfig
+                    .getConfigHolder(SoundFixConfig.class)
+                    .getConfig()
+                    .gunSoundIsolation;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * 判断物品是否为"枪械"（非近战/刀）。
+     * 判定链：IGun.getIGunOrNull → getGunId → TimelessAPI.getCommonGunIndex → CommonGunIndex.getType。
+     * 刀的 index 结构不标准（data 内联），getCommonGunIndex 返回 empty → 判为非枪；
+     * 标准枪械 type 不含近战特征词 → 判为枪。
+     */
+    private boolean isGun(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        try {
+            if (iGunClass == null || igunGetOrNullMethod == null) return true;
+            Object iGun = igunGetOrNullMethod.invoke(null, stack);
+            if (iGun == null) return false; // 不是 TaCZ 枪械接口（刀/其他）
+            if (igunGetGunIdMethod == null || timelessGetIndexMethod == null || commonGetTypeMethod == null) return true;
+            Object gunId = igunGetGunIdMethod.invoke(iGun, stack);
+            if (gunId == null) return false;
+            Object opt = timelessGetIndexMethod.invoke(null, gunId);
+            if (!(opt instanceof Optional<?> optional) || optional.isEmpty()) return false; // 刀的 index 加载失败
+            Object index = optional.get();
+            Object typeObj = commonGetTypeMethod.invoke(index);
+            if (!(typeObj instanceof String type)) return true;
+            String t = type.toLowerCase();
+            // 近战特征词：melee / lrtactical / knife / blade / sword
+            return !t.contains("melee") && !t.contains("lrtactical")
+                    && !t.contains("knife") && !t.contains("blade") && !t.contains("sword");
+        } catch (Throwable t) {
+            // 反射失败时保守视为枪（不停止，避免误伤音效）
+            return true;
+        }
     }
 
     /** 反射收集 TRACKED_GUN_SOUNDS 中所有音效实例 */
