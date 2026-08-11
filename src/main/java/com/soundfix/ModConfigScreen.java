@@ -24,6 +24,9 @@ public class ModConfigScreen {
                             Component.literal("枪械音效隔离"),
                             readIsolation())
                             .setDefaultValue(true)
+                            .setTooltip(
+                                    Component.literal("开启：枪械音效将不受到此mod的声音修复行为影响"),
+                                    Component.literal("关闭：枪械将受到和刀一致的声音打断"))
                             .setSaveConsumer(ModConfigScreen::writeIsolation)
                             .build());
             return builder.build();

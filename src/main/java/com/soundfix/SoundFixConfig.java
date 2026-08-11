@@ -12,8 +12,10 @@ import me.shedaniel.autoconfig.annotation.ConfigEntry;
 @Config(name = "soundfix")
 public class SoundFixConfig implements ConfigData {
     /**
-     * 枪械音效隔离：开启后，切走武器时若上一把是枪械，不停止其音效（枪声等保留播完）；
-     * 近战武器（刀）仍执行停止逻辑。默认开启。
+     * 枪械音效隔离：
+     * 开启：枪械音效将不受到此mod的声音修复行为影响；
+     * 关闭：枪械将受到和刀一致的声音打断。
+     * 默认开启。
      */
     @ConfigEntry.Gui.Tooltip
     public boolean gunSoundIsolation = true;
