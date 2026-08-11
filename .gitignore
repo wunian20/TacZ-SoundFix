@@ -8,3 +8,4 @@ local.properties
 .idea/
 .vscode/
 *.log
+.reasonix/
