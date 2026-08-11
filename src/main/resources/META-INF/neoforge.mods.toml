@@ -4,7 +4,7 @@ license="GNU GPL 3.0"
 
 [[mods]]
 modId="soundfix"
-version="1.0.1"
+version="1.0.2"
 displayName="TacZ SoundFix"
 logoFile="logo.png"
 credits=""

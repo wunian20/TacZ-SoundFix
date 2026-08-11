@@ -50,6 +50,7 @@
 |---|---|---|
 | v1.0.0 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.0.jar` |
 | v1.0.1 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.1.jar` |
+| v1.0.2 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.2.jar` |
 
 版本号在 `gradle.properties` 的 `mod_version` 与 `META-INF/neoforge.mods.toml` 的 `version` 中同步维护。
 
