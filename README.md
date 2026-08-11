@@ -31,6 +31,9 @@
 - `main`：Minecraft 1.20.1 + Forge 47+
 - `neoforge/1.21.1`：Minecraft 1.21.1 + NeoForge 21.1+（对应 [TaCZ 1.21.1 NeoForge 移植版](https://modrinth.com/mod/tacz-1.21.1)）
 - TaCZ 1.1+（可选，不装也能进游戏但无效果）
+- **Cloth Config API**（可选，仅游戏内设置界面需要；不装时功能按默认值生效，只是没有设置界面）
+  - `main`（Forge 1.20.1）：Cloth Config 11.x（`cloth-config-forge`）
+  - `neoforge/1.21.1`（NeoForge 1.21.1）：Cloth Config 15.x（`cloth-config-neoforge`）
 
 ## 构建
 
@@ -40,19 +43,7 @@
 ./gradlew build
 ```
 
-产物：`build/libs/TacZ SoundFix1.21.1-NeoForge-1.0.1.jar`，放入游戏 `mods/` 目录即可。
-
-## 版本与命名
-
-文件名遵循 `TacZ SoundFix{游戏版本}-{加载器平台}-{版本号}.jar` 规范：
-
-| 版本 | 分支 | 文件名 |
-|---|---|---|
-| v1.0.0 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.0.jar` |
-| v1.0.1 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.1.jar` |
-| v1.0.2 | `neoforge/1.21.1` | `TacZ SoundFix1.21.1-NeoForge-1.0.2.jar` |
-
-版本号在 `gradle.properties` 的 `mod_version` 与 `META-INF/neoforge.mods.toml` 的 `version` 中同步维护。
+产物：`build/libs/TacZ SoundFix-1.0.0.jar`，放入游戏 `mods/` 目录即可。
 
 ## 测试
 
